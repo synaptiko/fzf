@@ -50,9 +50,9 @@ if s:is_win
   " Use utf-8 for fzf.vim commands
   " Return array of shell commands for cmd.exe
   function! s:wrap_cmds(cmds)
-    return ['@echo off', 'for /f "tokens=4" %%a in (''chcp'') do set origchcp=%%a', 'chcp 65001 > nul'] +
+    return map(['@echo off', 'for /f "tokens=4" %%a in (''chcp'') do set origchcp=%%a', 'chcp 65001 > nul'] +
           \ (type(a:cmds) == type([]) ? a:cmds : [a:cmds]) +
-          \ ['chcp %origchcp% > nul']
+          \ ['chcp %origchcp% > nul'], 'v:val."\r"')
   endfunction
 else
   let s:term_marker = ";#FZF"
@@ -231,6 +231,7 @@ function! s:common_sink(action, lines) abort
         doautocmd BufEnter
       endif
     endfor
+  catch /^Vim:Interrupt$/
   finally
     let &autochdir = autochdir
     silent! autocmd! fzf_swap
@@ -586,7 +587,7 @@ function! s:calc_size(max, val, dict)
     let srcsz = len(a:dict.source)
   endif
 
-  let opts = get(a:dict, 'options', '').$FZF_DEFAULT_OPTS
+  let opts = s:evaluate_opts(get(a:dict, 'options', '')).$FZF_DEFAULT_OPTS
   let margin = stridx(opts, '--inline-info') > stridx(opts, '--no-inline-info') ? 1 : 2
   let margin += stridx(opts, '--header') > stridx(opts, '--no-header')
   return srcsz >= 0 ? min([srcsz + margin, size]) : size
