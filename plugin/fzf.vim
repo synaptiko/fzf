@@ -283,7 +283,8 @@ function! s:common_sink(action, lines) abort
     let cwd = exists('w:fzf_pushd') ? w:fzf_pushd.dir : expand('%:p:h')
     for item in a:lines
       if item[0] != '~' && item !~ (s:is_win ? '^[A-Z]:\' : '^/')
-        let item = join([cwd, item], (s:is_win ? '\' : '/'))
+        let sep = s:is_win ? '\' : '/'
+        let item = join([cwd, item], cwd[len(cwd)-1] == sep ? '' : sep)
       endif
       if empty
         execute 'e' s:escape(item)
@@ -423,10 +424,10 @@ try
     throw v:exception
   endtry
 
-  if !has_key(dict, 'dir')
+  if !s:present(dict, 'dir')
     let dict.dir = s:fzf_getcwd()
   endif
-  if has('win32unix') && has_key(dict, 'dir')
+  if has('win32unix') && s:present(dict, 'dir')
     let dict.dir = fnamemodify(dict.dir, ':p')
   endif
 
@@ -644,7 +645,8 @@ function! s:execute(dict, command, use_height, temps) abort
   endif
   let exit_status = v:shell_error
   redraw!
-  return s:exit_handler(exit_status, command) ? s:collect(a:temps) : []
+  let lines = s:collect(a:temps)
+  return s:exit_handler(exit_status, command) ? lines : []
 endfunction
 
 function! s:execute_tmux(dict, command, temps) abort
@@ -658,7 +660,8 @@ function! s:execute_tmux(dict, command, temps) abort
   call system(command)
   let exit_status = v:shell_error
   redraw!
-  return s:exit_handler(exit_status, command) ? s:collect(a:temps) : []
+  let lines = s:collect(a:temps)
+  return s:exit_handler(exit_status, command) ? lines : []
 endfunction
 
 function! s:calc_size(max, val, dict)
@@ -789,6 +792,8 @@ function! s:execute_term(dict, command, temps) abort
       call self.switch_back(1)
     else
       if bufnr('') == self.buf
+        " Exit terminal mode first (see neovim#13769)
+        call feedkeys("\<C-\>\<C-n>", 'n')
         " We use close instead of bd! since Vim does not close the split when
         " there's no other listed buffer (nvim +'set nobuflisted')
         close
@@ -805,12 +810,12 @@ function! s:execute_term(dict, command, temps) abort
       execute self.winrest
     endif
 
+    let lines = s:collect(self.temps)
     if !s:exit_handler(a:code, self.command, 1)
       return
     endif
 
     call s:pushd(self.dict)
-    let lines = s:collect(self.temps)
     call s:callback(self.dict, lines)
     call self.switch_back(s:getpos() == self.ppos)
   endfunction
@@ -828,13 +833,16 @@ function! s:execute_term(dict, command, temps) abort
     if has('nvim')
       call termopen(command, fzf)
     else
-      let term_opts = {'exit_cb': function(fzf.on_exit)}
+      let term_opts = {'exit_cb': function(fzf.on_exit), 'term_kill': 'term'}
       if is_popup
         let term_opts.hidden = 1
       else
         let term_opts.curwin = 1
       endif
       let fzf.buf = term_start([&shell, &shellcmdflag, command], term_opts)
+      if exists('&termwinkey')
+        call setbufvar(fzf.buf, '&termwinkey', '<c-z>')
+      endif
       if is_popup && exists('#TerminalWinOpen')
         doautocmd <nomodeline> TerminalWinOpen
       endif
@@ -842,6 +850,7 @@ function! s:execute_term(dict, command, temps) abort
         call term_wait(fzf.buf, 20)
       endif
     endif
+    tnoremap <buffer> <c-z> <nop>
   finally
     call s:dopopd()
   endtry
